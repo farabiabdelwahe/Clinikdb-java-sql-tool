@@ -247,8 +247,6 @@ public class SqliteTool
 
 		List<String> output = executeSql( sql);
 
-		System.err.println( "Output size: " + output.size() + ", first line: " + output.get( 0));
-
 		if( !output.isEmpty() && "ok".equals( output.get( 0)))
 		{
 			output.remove( 0); // Remove the "ok" response
