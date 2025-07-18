@@ -127,7 +127,7 @@ public class SqliteTool
 		log( Level.INFO, "Successfully initialized SQLCipher resources");
 	}
 
-	public void createEncryptedDatabase(String dbPath, String passkey) throws IOException, InterruptedException
+	public void createEncryptedDatabase(String dbPath, String passkey) throws IOException, InterruptedException, SQLCipherException
 	{
 		log( Level.INFO, "Creating encrypted database at: {0}", dbPath);
 
@@ -148,7 +148,7 @@ public class SqliteTool
 		log( Level.INFO, "Encrypted database initialized successfully");
 	}
 
-	public List<String> executeSql(String sql) throws IOException, InterruptedException
+	public List<String> executeSql(String sql) throws IOException, InterruptedException, SQLCipherException
 	{
 		log( Level.INFO, "Executing SQL query: {0}", sql);
 
@@ -159,10 +159,12 @@ public class SqliteTool
 		}
 
 		List<String> output = new ArrayList<>();
+		List<String> errorCodes = new ArrayList<>();
 
 		ProcessBuilder builder = new ProcessBuilder( sqlcipherBinary.getAbsolutePath(), dbPath);
 		builder.directory( workingDir);
-		builder.redirectErrorStream( true);
+		// Don't redirect error stream - we want to capture it separately
+		builder.redirectErrorStream( false);
 
 		if( IS_WINDOWS)
 		{
@@ -190,6 +192,7 @@ public class SqliteTool
 			log( Level.FINE, "SQL commands written to process");
 		}
 
+		// Read standard output
 		try (BufferedReader reader = new BufferedReader( new InputStreamReader( process.getInputStream())))
 		{
 			String line;
@@ -201,35 +204,60 @@ public class SqliteTool
 			log( Level.FINE, "SQL query output collected, lines: {0}", output.size());
 		}
 
+		// Read error output
+		try (BufferedReader errorReader = new BufferedReader( new InputStreamReader( process.getErrorStream())))
+		{
+			String errorLine;
+			while( (errorLine = errorReader.readLine()) != null)
+			{
+				errorCodes.add( errorLine);
+				log( Level.WARNING, "SQLCipher error output: {0}", errorLine);
+			}
+		}
+
 		int exitCode = process.waitFor();
 		log( Level.INFO, "SQL process completed with exit code: {0}", exitCode);
+
+		// Check for errors and throw exception if any exist
+		if( !errorCodes.isEmpty() || exitCode != 0)
+		{
+			String errorMessage = "SQLCipher execution failed with exit code: " + exitCode;
+			if( !errorCodes.isEmpty())
+			{
+				errorMessage += "\nError details: " + String.join( "\n", errorCodes);
+			}
+
+			log( Level.SEVERE, "SQLCipher error: {0}", errorMessage);
+			throw new SQLCipherException( errorMessage, exitCode, errorCodes);
+		}
 
 		return output;
 	}
 
-	public String executeSqlAsString(String sql) throws IOException, InterruptedException
+	// Custom exception class for SQLCipher errors
+
+	public String executeSqlAsString(String sql) throws IOException, InterruptedException, SQLCipherException
 	{
 		return String.join( "\n", executeSql( sql));
 	}
 
-	public String executeSqlGetResultAsJson(String sql) throws IOException, InterruptedException
+	public String executeSqlGetResultAsJson(String sql) throws IOException, InterruptedException, SQLCipherException
 	{
 		log( Level.INFO, "Executing SQL query for JSON output: {0}", sql);
 
 		List<String> output = executeSql( sql);
 
+		System.err.println( "Output size: " + output.size() + ", first line: " + output.get( 0));
+
+		if( !output.isEmpty() && "ok".equals( output.get( 0)))
+		{
+			output.remove( 0); // Remove the "ok" response
+		}
 		if( output.isEmpty())
 		{
 			log( Level.WARNING, "No output from SQL query");
 			return "[]";
 		}
-
-		if( output.get( 0).equals( "ok"))
-		{
-			output.remove( 0); // Remove the "ok" response
-
-		}
-
 		if( !output.get( 0).contains( ","))
 		{
 			String rawOutput = String.join( "\\n", output);
@@ -237,18 +265,19 @@ public class SqliteTool
 			return "{\"message\":\"" + escapeJson( rawOutput) + "\"}";
 		}
 
+		// Assume first line is CSV headers
 		String[] headers = output.get( 0).split( ",");
-		StringBuilder jsonBuilder = new StringBuilder();
-		jsonBuilder.append( "[");
+		StringBuilder jsonBuilder = new StringBuilder( "["); // JSON array start
 
 		for( int i = 1; i < output.size(); i++)
 		{
-			String[] values = output.get( i).split( ",", -1);
+			String[] values = output.get( i).split( ",", -1); // -1 to keep trailing empty fields
 			jsonBuilder.append( "{");
 
 			for( int j = 0; j < headers.length; j++)
 			{
 				jsonBuilder.append( "\"").append( escapeJson( headers[j])).append( "\":");
+
 				if( j < values.length)
 				{
 					jsonBuilder.append( "\"").append( escapeJson( values[j])).append( "\"");
@@ -257,6 +286,7 @@ public class SqliteTool
 				{
 					jsonBuilder.append( "\"\"");
 				}
+
 				if( j < headers.length - 1)
 				{
 					jsonBuilder.append( ",");
@@ -264,6 +294,7 @@ public class SqliteTool
 			}
 
 			jsonBuilder.append( "}");
+
 			if( i < output.size() - 1)
 			{
 				jsonBuilder.append( ",");
