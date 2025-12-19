@@ -19,216 +19,186 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.logging.SimpleFormatter;
 
-
 /**
- * A utility class for interacting with encrypted SQLite databases using SQLCipher and native binaries.
+ * A utility class for interacting with encrypted SQLite databases using
+ * SQLCipher and native binaries.
  */
-public class SqliteTool
-{
+public class SqliteTool {
 
-	private static final Logger		LOGGER			= Logger.getLogger( SqliteTool.class.getName());
+	private static final Logger LOGGER = Logger.getLogger(SqliteTool.class.getName());
 
-	private File					sqlcipherBinary;												// Used for Windows
-																									// (extracted) or
-																									// macOS
-																									// (system-installed)
-	private File					dllFile;														// Only used on
-																									// Windows
-	private String					dbPath;
-	private String					passkey;
-	private File					workingDir;
-	private boolean					enableLogging	= false;
-	private static final String		OS				= System.getProperty( "os.name").toLowerCase();
-	private static final boolean	IS_WINDOWS		= OS.contains( "win");
-	private static final boolean	IS_MAC			= OS.contains( "mac");
+	private File sqlcipherBinary; // Used for Windows
+									// (extracted) or
+									// macOS
+									// (system-installed)
+	private File dllFile; // Only used on
+							// Windows
+	private String dbPath;
+	private String passkey;
+	private File workingDir;
+	private boolean enableLogging = false;
+	private static final String OS = System.getProperty("os.name").toLowerCase();
+	private static final boolean IS_WINDOWS = OS.contains("win");
+	private static final boolean IS_MAC = OS.contains("mac");
 
-	static
-	{
-		try
-		{
+	static {
+		try {
 			Logger rootLogger = LOGGER;
 
-			if( rootLogger.getHandlers().length == 0)
-			{
+			if (rootLogger.getHandlers().length == 0) {
 				ConsoleHandler consoleHandler = new ConsoleHandler();
-				consoleHandler.setLevel( Level.ALL);
-				consoleHandler.setFormatter( new SimpleFormatter());
-				rootLogger.addHandler( consoleHandler);
+				consoleHandler.setLevel(Level.ALL);
+				consoleHandler.setFormatter(new SimpleFormatter());
+				rootLogger.addHandler(consoleHandler);
 
-				FileHandler fileHandler = new FileHandler( "sqlite_tool.log", true);
-				fileHandler.setLevel( Level.ALL);
-				fileHandler.setFormatter( new SimpleFormatter());
-				rootLogger.addHandler( fileHandler);
+				FileHandler fileHandler = new FileHandler("sqlite_tool.log", true);
+				fileHandler.setLevel(Level.ALL);
+				fileHandler.setFormatter(new SimpleFormatter());
+				rootLogger.addHandler(fileHandler);
 			}
-		}
-		catch( IOException e)
-		{
-			LOGGER.log( Level.SEVERE, "Failed to configure logging", e);
+		} catch (IOException e) {
+			LOGGER.log(Level.SEVERE, "Failed to configure logging", e);
 		}
 	}
 
-	public void initDb(String dbPath, String passkey, boolean enableLogging) throws IOException
-	{
+	public void initDb(String dbPath, String passkey, boolean enableLogging) throws IOException {
 		this.dbPath = dbPath;
 		this.passkey = passkey;
 		this.enableLogging = enableLogging;
 
-		log( Level.INFO, "Initializing SQLite tool with database path: {0}, logging enabled: {1}", dbPath, enableLogging);
+		log(Level.INFO, "Initializing SQLite tool with database path: {0}, logging enabled: {1}", dbPath,
+				enableLogging);
 
-		workingDir = new File( System.getProperty( "java.io.tmpdir"), "sqlite-temp");
+		workingDir = new File(System.getProperty("java.io.tmpdir"), "sqlite-temp");
 		workingDir.mkdirs();
 
-		log( Level.FINE, "Creating temporary directory: {0}", workingDir.getAbsolutePath());
+		log(Level.FINE, "Creating temporary directory: {0}", workingDir.getAbsolutePath());
 
-		if( IS_WINDOWS)
-		{
-			sqlcipherBinary = extractResourceTo( "sqlite3.exe", workingDir);
-			dllFile = extractResourceTo( "sqlite3.dll", workingDir);
-		}
-		else if( IS_MAC)
-		{
+		if (IS_WINDOWS) {
+			sqlcipherBinary = extractResourceTo("sqlite3.exe", workingDir);
+			dllFile = extractResourceTo("sqlite3.dll", workingDir);
+		} else if (IS_MAC) {
 			// Use system-installed sqlcipher
-			sqlcipherBinary = new File( "/opt/homebrew/bin/sqlcipher");
-			if( !sqlcipherBinary.exists() || !sqlcipherBinary.canExecute())
-			{
+			sqlcipherBinary = new File("/opt/homebrew/bin/sqlcipher");
+			if (!sqlcipherBinary.exists() || !sqlcipherBinary.canExecute()) {
 				// Fallback to PATH lookup
-				try
-				{
-					ProcessBuilder pb = new ProcessBuilder( "which", "sqlcipher");
+				try {
+					ProcessBuilder pb = new ProcessBuilder("which", "sqlcipher");
 					Process process = pb.start();
-					BufferedReader reader = new BufferedReader( new InputStreamReader( process.getInputStream()));
+					BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
 					String path = reader.readLine();
-					if( path != null && !path.isEmpty())
-					{
-						sqlcipherBinary = new File( path.trim());
+					if (path != null && !path.isEmpty()) {
+						sqlcipherBinary = new File(path.trim());
 					}
 					process.waitFor();
-					if( !sqlcipherBinary.exists() || !sqlcipherBinary.canExecute())
-					{
-						log( Level.SEVERE, "sqlcipher not found or not executable on macOS");
-						throw new IOException( "sqlcipher not found or not executable on macOS");
+					if (!sqlcipherBinary.exists() || !sqlcipherBinary.canExecute()) {
+						log(Level.SEVERE, "sqlcipher not found or not executable on macOS");
+						throw new IOException("sqlcipher not found or not executable on macOS");
 					}
-				}
-				catch( InterruptedException e)
-				{
+				} catch (InterruptedException e) {
 					Thread.currentThread().interrupt();
-					log( Level.SEVERE, "Interrupted while locating sqlcipher", e);
-					throw new IOException( "Failed to locate sqlcipher", e);
+					log(Level.SEVERE, "Interrupted while locating sqlcipher", e);
+					throw new IOException("Failed to locate sqlcipher", e);
 				}
 			}
-			log( Level.INFO, "Using system sqlcipher at: {0}", sqlcipherBinary.getAbsolutePath());
-		}
-		else
-		{
-			log( Level.SEVERE, "Unsupported operating system: {0}", OS);
-			throw new UnsupportedOperationException( "Unsupported operating system: " + OS);
+			log(Level.INFO, "Using system sqlcipher at: {0}", sqlcipherBinary.getAbsolutePath());
+		} else {
+			log(Level.SEVERE, "Unsupported operating system: {0}", OS);
+			throw new UnsupportedOperationException("Unsupported operating system: " + OS);
 		}
 
-		log( Level.INFO, "Successfully initialized SQLCipher resources");
+		log(Level.INFO, "Successfully initialized SQLCipher resources");
 	}
 
-	public void createEncryptedDatabase(String dbPath, String passkey) throws IOException, InterruptedException, SQLCipherException
-	{
-		log( Level.INFO, "Creating encrypted database at: {0}", dbPath);
+	public void createEncryptedDatabase(String dbPath, String passkey)
+			throws IOException, InterruptedException, SQLCipherException {
+		log(Level.INFO, "Creating encrypted database at: {0}", dbPath);
 
-		initDb( dbPath, passkey, enableLogging);
+		initDb(dbPath, passkey, enableLogging);
 
-		File dbFile = new File( dbPath);
-		if( !dbFile.exists())
-		{
+		File dbFile = new File(dbPath);
+		if (!dbFile.exists()) {
 			dbFile.createNewFile();
-			log( Level.FINE, "Database file created: {0}", dbPath);
+			log(Level.FINE, "Database file created: {0}", dbPath);
 		}
 
 		String sql = "CREATE TABLE IF NOT EXISTS init_table (id INTEGER PRIMARY KEY, message TEXT);";
-		log( Level.FINE, "Executing initialization SQL: {0}", sql);
+		log(Level.FINE, "Executing initialization SQL: {0}", sql);
 
-		executeSql( sql);
+		executeSql(sql);
 
-		log( Level.INFO, "Encrypted database initialized successfully");
+		log(Level.INFO, "Encrypted database initialized successfully");
 	}
 
-	public List<String> executeSql(String sql) throws IOException, InterruptedException, SQLCipherException
-	{
-		log( Level.INFO, "Executing SQL query: {0}", sql);
+	public List<String> executeSql(String sql) throws IOException, InterruptedException, SQLCipherException {
+		log(Level.INFO, "Executing SQL query: {0}", sql);
 
-		if( sqlcipherBinary == null || dbPath == null || passkey == null)
-		{
-			log( Level.SEVERE, "SQLite tool not initialized");
-			throw new IllegalStateException( "Call initDb() before executing SQL.");
+		if (sqlcipherBinary == null || dbPath == null || passkey == null) {
+			log(Level.SEVERE, "SQLite tool not initialized");
+			throw new IllegalStateException("Call initDb() before executing SQL.");
 		}
 
 		List<String> output = new ArrayList<>();
 		List<String> errorCodes = new ArrayList<>();
 
-		ProcessBuilder builder = new ProcessBuilder( sqlcipherBinary.getAbsolutePath(), dbPath);
-		builder.directory( workingDir);
+		ProcessBuilder builder = new ProcessBuilder(sqlcipherBinary.getAbsolutePath(), dbPath);
+		builder.directory(workingDir);
 		// Don't redirect error stream - we want to capture it separately
-		builder.redirectErrorStream( false);
+		builder.redirectErrorStream(false);
 
-		if( IS_WINDOWS)
-		{
-			builder.environment().put( "PATH", workingDir.getAbsolutePath() + ";" + System.getenv( "PATH"));
-		}
-		else if( IS_MAC)
-		{
-			builder.environment().put( "DYLD_LIBRARY_PATH", workingDir.getAbsolutePath());
+		if (IS_WINDOWS) {
+			builder.environment().put("PATH", workingDir.getAbsolutePath() + ";" + System.getenv("PATH"));
+		} else if (IS_MAC) {
+			builder.environment().put("DYLD_LIBRARY_PATH", workingDir.getAbsolutePath());
 		}
 
-		log( Level.FINE, "Starting SQLCipher process for database: {0}", dbPath);
+		log(Level.FINE, "Starting SQLCipher process for database: {0}", dbPath);
 
 		Process process = builder.start();
 
-		try (BufferedWriter writer = new BufferedWriter( new OutputStreamWriter( process.getOutputStream())))
-		{
-			writer.write( "PRAGMA cipher_compatibility = 3;\n");
-			writer.write( "PRAGMA key = '" + passkey + "';\n");
-			writer.write( ".mode csv\n");
-			writer.write( ".headers on\n");
-			writer.write( sql + "\n");
-			writer.write( ".exit\n");
+		try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(process.getOutputStream()))) {
+			writer.write("PRAGMA cipher_compatibility = 3;\n");
+			writer.write("PRAGMA key = '" + passkey + "';\n");
+			writer.write(".mode csv\n");
+			writer.write(".headers on\n");
+			writer.write(sql + "\n");
+			writer.write(".exit\n");
 			writer.flush();
 
-			log( Level.FINE, "SQL commands written to process");
+			log(Level.FINE, "SQL commands written to process");
 		}
 
 		// Read standard output
-		try (BufferedReader reader = new BufferedReader( new InputStreamReader( process.getInputStream())))
-		{
+		try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
 			String line;
-			while( (line = reader.readLine()) != null)
-			{
-				output.add( line);
+			while ((line = reader.readLine()) != null) {
+				output.add(line);
 			}
 
-			log( Level.FINE, "SQL query output collected, lines: {0}", output.size());
+			log(Level.FINE, "SQL query output collected, lines: {0}", output.size());
 		}
 
 		// Read error output
-		try (BufferedReader errorReader = new BufferedReader( new InputStreamReader( process.getErrorStream())))
-		{
+		try (BufferedReader errorReader = new BufferedReader(new InputStreamReader(process.getErrorStream()))) {
 			String errorLine;
-			while( (errorLine = errorReader.readLine()) != null)
-			{
-				errorCodes.add( errorLine);
-				log( Level.WARNING, "SQLCipher error output: {0}", errorLine);
+			while ((errorLine = errorReader.readLine()) != null) {
+				errorCodes.add(errorLine);
+				log(Level.WARNING, "SQLCipher error output: {0}", errorLine);
 			}
 		}
 
 		int exitCode = process.waitFor();
-		log( Level.INFO, "SQL process completed with exit code: {0}", exitCode);
+		log(Level.INFO, "SQL process completed with exit code: {0}", exitCode);
 
 		// Check for errors and throw exception if any exist
-		if( !errorCodes.isEmpty() || exitCode != 0)
-		{
+		if (!errorCodes.isEmpty() || exitCode != 0) {
 			String errorMessage = "SQLCipher execution failed with exit code: " + exitCode;
-			if( !errorCodes.isEmpty())
-			{
-				errorMessage += "\nError details: " + String.join( "\n", errorCodes);
+			if (!errorCodes.isEmpty()) {
+				errorMessage += "\nError details: " + String.join("\n", errorCodes);
 			}
 
-			log( Level.SEVERE, "SQLCipher error: {0}", errorMessage);
-			throw new SQLCipherException( errorMessage, exitCode, errorCodes);
+			log(Level.SEVERE, "SQLCipher error: {0}", errorMessage);
+			throw new SQLCipherException(errorMessage, exitCode, errorCodes);
 		}
 
 		return output;
@@ -236,88 +206,109 @@ public class SqliteTool
 
 	// Custom exception class for SQLCipher errors
 
-	public String executeSqlAsString(String sql) throws IOException, InterruptedException, SQLCipherException
-	{
-		return String.join( "\n", executeSql( sql));
+	public String executeSqlAsString(String sql) throws IOException, InterruptedException, SQLCipherException {
+		return String.join("\n", executeSql(sql));
 	}
 
-	public String executeSqlGetResultAsJson(String sql) throws IOException, InterruptedException, SQLCipherException
-	{
-		log( Level.INFO, "Executing SQL query for JSON output: {0}", sql);
+	public String executeSqlGetResultAsJson(String sql) throws IOException, InterruptedException, SQLCipherException {
+		log(Level.INFO, "Executing SQL query for JSON output: {0}", sql);
 
-		List<String> output = executeSql( sql);
+		List<String> output = executeSql(sql);
 
-		if( !output.isEmpty() && "ok".equals( output.get( 0)))
-		{
-			output.remove( 0); // Remove the "ok" response
+		if (!output.isEmpty() && "ok".equals(output.get(0))) {
+			output.remove(0); // Remove the "ok" response
 		}
-		if( output.isEmpty())
-		{
-			log( Level.WARNING, "No output from SQL query");
+		if (output.isEmpty()) {
+			log(Level.WARNING, "No output from SQL query");
 			return "[]";
-		}
-		if( !output.get( 0).contains( ","))
-		{
-			String rawOutput = String.join( "\\n", output);
-			log( Level.FINE, "Non-CSV output, converting to JSON message");
-			return "{\"message\":\"" + escapeJson( rawOutput) + "\"}";
 		}
 
 		// Assume first line is CSV headers
-		String[] headers = output.get( 0).split( ",");
-		StringBuilder jsonBuilder = new StringBuilder( "["); // JSON array start
-
-		for( int i = 1; i < output.size(); i++)
-		{
-			String[] values = output.get( i).split( ",", -1); // -1 to keep trailing empty fields
-			jsonBuilder.append( "{");
-
-			for( int j = 0; j < headers.length; j++)
-			{
-				jsonBuilder.append( "\"").append( escapeJson( headers[j])).append( "\":");
-
-				if( j < values.length)
-				{
-					jsonBuilder.append( "\"").append( escapeJson( values[j])).append( "\"");
-				}
-				else
-				{
-					jsonBuilder.append( "\"\"");
-				}
-
-				if( j < headers.length - 1)
-				{
-					jsonBuilder.append( ",");
-				}
-			}
-
-			jsonBuilder.append( "}");
-
-			if( i < output.size() - 1)
-			{
-				jsonBuilder.append( ",");
-			}
+		List<String> headers = parseCsvLine(output.get(0));
+		if (headers.isEmpty()) {
+			String rawOutput = String.join("\n", output);
+			log(Level.FINE, "Non-CSV output, converting to JSON message");
+			return "{\n  \"message\": \"" + escapeJson(rawOutput) + "\"\n}";
 		}
 
-		jsonBuilder.append( "]");
-		log( Level.INFO, "SQL query results converted to JSON");
+		StringBuilder jsonBuilder = new StringBuilder("[\n"); // JSON array start
+
+		for (int i = 1; i < output.size(); i++) {
+			List<String> values = parseCsvLine(output.get(i));
+			jsonBuilder.append("  {\n");
+
+			for (int j = 0; j < headers.size(); j++) {
+				jsonBuilder.append("    \"").append(escapeJson(headers.get(j))).append("\": ");
+
+				if (j < values.size()) {
+					jsonBuilder.append("\"").append(escapeJson(values.get(j))).append("\"");
+				} else {
+					jsonBuilder.append("\"\"");
+				}
+
+				if (j < headers.size() - 1) {
+					jsonBuilder.append(",");
+				}
+				jsonBuilder.append("\n");
+			}
+
+			jsonBuilder.append("  }");
+
+			if (i < output.size() - 1) {
+				jsonBuilder.append(",");
+			}
+			jsonBuilder.append("\n");
+		}
+
+		jsonBuilder.append("]");
+		log(Level.INFO, "SQL query results converted to JSON");
 		return jsonBuilder.toString();
 	}
 
-	public void closeDb()
-	{
-		log( Level.INFO, "Closing SQLite tool and cleaning up resources");
-
-		if( IS_WINDOWS && sqlcipherBinary != null && sqlcipherBinary.exists())
-		{
-			sqlcipherBinary.delete();
-			log( Level.FINE, "Deleted binary: {0}", sqlcipherBinary.getAbsolutePath());
+	/**
+	 * Robust CSV parser that handles quoted fields containing commas or escaped
+	 * quotes.
+	 */
+	private List<String> parseCsvLine(String line) {
+		List<String> result = new ArrayList<>();
+		if (line == null || line.isEmpty()) {
+			return result;
 		}
 
-		if( dllFile != null && dllFile.exists())
-		{
+		StringBuilder currentField = new StringBuilder();
+		boolean inQuotes = false;
+		for (int i = 0; i < line.length(); i++) {
+			char c = line.charAt(i);
+			if (c == '\"') {
+				if (inQuotes && i + 1 < line.length() && line.charAt(i + 1) == '\"') {
+					// Escaped quote: ""
+					currentField.append('\"');
+					i++;
+				} else {
+					inQuotes = !inQuotes;
+				}
+			} else if (c == ',' && !inQuotes) {
+				result.add(currentField.toString());
+				currentField.setLength(0);
+			} else {
+				currentField.append(c);
+			}
+		}
+		result.add(currentField.toString());
+		return result;
+	}
+
+	public void closeDb() {
+		log(Level.INFO, "Closing SQLite tool and cleaning up resources");
+
+		if (IS_WINDOWS && sqlcipherBinary != null && sqlcipherBinary.exists()) {
+			sqlcipherBinary.delete();
+			log(Level.FINE, "Deleted binary: {0}", sqlcipherBinary.getAbsolutePath());
+		}
+
+		if (dllFile != null && dllFile.exists()) {
 			dllFile.delete();
-			log( Level.FINE, "Deleted DLL: {0}", dllFile.getAbsolutePath());
+			log(Level.FINE, "Deleted DLL: {0}", dllFile.getAbsolutePath());
 		}
 
 		sqlcipherBinary = null;
@@ -326,71 +317,93 @@ public class SqliteTool
 		passkey = null;
 		workingDir = null;
 
-		log( Level.INFO, "SQLite tool cleanup complete");
+		log(Level.INFO, "SQLite tool cleanup complete");
 	}
 
-	private String escapeJson(String s)
-	{
-		if( s == null)
-		{
-			log( Level.FINE, "Null string passed to JSON escape");
+	private String escapeJson(String s) {
+		if (s == null) {
+			log(Level.FINE, "Null string passed to JSON escape");
 			return "";
 		}
 
-		String escaped = s.replace( "\\", "\\\\").replace( "\"", "\\\"").replace( "\b", "\\b").replace( "\f", "\\f").replace( "\n", "\\n")
-			.replace( "\r", "\\r").replace( "\t", "\\t");
+		StringBuilder sb = new StringBuilder();
+		for (int i = 0; i < s.length(); i++) {
+			char ch = s.charAt(i);
+			switch (ch) {
+				case '\"':
+					sb.append("\\\"");
+					break;
+				case '\\':
+					sb.append("\\\\");
+					break;
+				case '\b':
+					sb.append("\\b");
+					break;
+				case '\f':
+					sb.append("\\f");
+					break;
+				case '\n':
+					sb.append("\\n");
+					break;
+				case '\r':
+					sb.append("\\r");
+					break;
+				case '\t':
+					sb.append("\\t");
+					break;
+				default:
+					if (ch < ' ') {
+						String t = "000" + Integer.toHexString(ch);
+						sb.append("\\u" + t.substring(t.length() - 4));
+					} else {
+						sb.append(ch);
+					}
+			}
+		}
 
-		log( Level.FINEST, "Escaped JSON string: {0}", escaped);
+		String escaped = sb.toString();
+		log(Level.FINEST, "Escaped JSON string: {0}", escaped);
 		return escaped;
 	}
 
-	private File extractResourceTo(String resourceName, File targetDir) throws IOException
-	{
-		log( Level.INFO, "Extracting resource: {0} to {1}", resourceName, targetDir.getAbsolutePath());
+	private File extractResourceTo(String resourceName, File targetDir) throws IOException {
+		log(Level.INFO, "Extracting resource: {0} to {1}", resourceName, targetDir.getAbsolutePath());
 
-		InputStream in = SqliteTool.class.getResourceAsStream( "/" + resourceName);
-		if( in == null)
-		{
-			log( Level.SEVERE, "Resource not found: {0}", resourceName);
-			throw new FileNotFoundException( "Resource not found: " + resourceName);
+		InputStream in = SqliteTool.class.getResourceAsStream("/" + resourceName);
+		if (in == null) {
+			log(Level.SEVERE, "Resource not found: {0}", resourceName);
+			throw new FileNotFoundException("Resource not found: " + resourceName);
 		}
 
-		File outFile = new File( targetDir, resourceName);
-		try (OutputStream out = new FileOutputStream( outFile))
-		{
+		File outFile = new File(targetDir, resourceName);
+		try (OutputStream out = new FileOutputStream(outFile)) {
 			byte[] buffer = new byte[4096];
 			int len;
-			while( (len = in.read( buffer)) != -1)
-			{
-				out.write( buffer, 0, len);
+			while ((len = in.read(buffer)) != -1) {
+				out.write(buffer, 0, len);
 			}
 
-			log( Level.FINE, "Successfully extracted resource: {0}", resourceName);
+			log(Level.FINE, "Successfully extracted resource: {0}", resourceName);
 		}
 
-		if( resourceName.endsWith( ".exe"))
-		{
-			outFile.setExecutable( true);
-			log( Level.FINE, "Set executable permission for: {0}", outFile.getAbsolutePath());
+		if (resourceName.endsWith(".exe")) {
+			outFile.setExecutable(true);
+			log(Level.FINE, "Set executable permission for: {0}", outFile.getAbsolutePath());
 		}
 
 		return outFile;
 	}
 
 	// Unified logging helpers
-	private void log(Level level, String message)
-	{
-		if( enableLogging)
-		{
-			LOGGER.log( level, message);
+	private void log(Level level, String message) {
+		if (enableLogging) {
+			LOGGER.log(level, message);
 		}
 	}
 
-	private void log(Level level, String message, Object... params)
-	{
-		if( enableLogging)
-		{
-			LOGGER.log( level, message, params);
+	private void log(Level level, String message, Object... params) {
+		if (enableLogging) {
+			LOGGER.log(level, message, params);
 		}
 	}
 }
