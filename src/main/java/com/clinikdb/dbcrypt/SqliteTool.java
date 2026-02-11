@@ -191,6 +191,23 @@ public class SqliteTool {
 		log(Level.INFO, "SQL process completed with exit code: {0}", exitCode);
 
 		// Check for errors and throw exception if any exist
+		// SQLCipher specific: wrong password often shows as "file is not a database" or
+		// similar
+		boolean hasPasswordError = errorCodes.stream()
+				.anyMatch(err -> err.toLowerCase().contains("file is not a database")
+						|| err.toLowerCase().contains("file is encrypted")
+						|| err.toLowerCase().contains("database disk image is malformed")
+						|| err.toLowerCase().contains("unsupported file format"));
+
+		if (hasPasswordError) {
+			String errorMessage = "SQLCipher authentication failed - incorrect password or corrupted database";
+			if (!errorCodes.isEmpty()) {
+				errorMessage += "\nError details: " + String.join("\n", errorCodes);
+			}
+			log(Level.SEVERE, "SQLCipher password error: {0}", errorMessage);
+			throw new SQLCipherException(errorMessage, exitCode, errorCodes);
+		}
+
 		if (!errorCodes.isEmpty() || exitCode != 0) {
 			String errorMessage = "SQLCipher execution failed with exit code: " + exitCode;
 			if (!errorCodes.isEmpty()) {
@@ -237,16 +254,26 @@ public class SqliteTool {
 			List<String> values = parseCsvLine(output.get(i));
 			jsonBuilder.append("  {\n");
 
+			// First pass: collect non-null fields
+			List<String> nonNullFields = new ArrayList<>();
 			for (int j = 0; j < headers.size(); j++) {
-				jsonBuilder.append("    \"").append(escapeJson(headers.get(j))).append("\": ");
-
-				if (j < values.size()) {
-					jsonBuilder.append("\"").append(escapeJson(values.get(j))).append("\"");
-				} else {
-					jsonBuilder.append("\"\"");
+				String value = (j < values.size()) ? values.get(j) : null;
+				// Only include fields with non-null, non-empty values
+				if (value != null && !value.isEmpty()) {
+					nonNullFields.add(headers.get(j) + ":" + value);
 				}
+			}
 
-				if (j < headers.size() - 1) {
+			// Second pass: build JSON with only non-null fields
+			for (int k = 0; k < nonNullFields.size(); k++) {
+				String[] parts = nonNullFields.get(k).split(":", 2);
+				String header = parts[0];
+				String value = parts.length > 1 ? parts[1] : "";
+
+				jsonBuilder.append("    \"").append(escapeJson(header)).append("\": ");
+				jsonBuilder.append("\"").append(escapeJson(value)).append("\"");
+
+				if (k < nonNullFields.size() - 1) {
 					jsonBuilder.append(",");
 				}
 				jsonBuilder.append("\n");
