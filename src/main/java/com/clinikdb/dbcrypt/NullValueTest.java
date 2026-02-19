@@ -1,7 +1,8 @@
 package com.clinikdb.dbcrypt;
 
 /**
- * Test class to verify that NULL values are properly represented in JSON output
+ * Test class to verify that NULL values are omitted but empty strings are
+ * preserved in JSON output
  */
 public class NullValueTest {
     public static void main(String[] args) {
@@ -25,50 +26,60 @@ public class NullValueTest {
             tool.executeSql(createTable);
             System.out.println("✓ Table created\n");
 
-            // Insert test data with NULL values
+            // Insert test data
             System.out.println("=== Inserting test data ===");
 
             // User 1: All fields populated
-            String insert1 = "INSERT INTO users (id, name, email, phone, age) " +
-                    "VALUES (1, 'John Doe', 'john@example.com', '123-456-7890', 30);";
-            tool.executeSql(insert1);
-            System.out.println("✓ Inserted User 1 (all fields populated)");
+            tool.executeSql("INSERT INTO users (id, name, email, phone, age) " +
+                    "VALUES (1, 'John Doe', 'john@example.com', '123-456-7890', 30);");
+            System.out.println("✓ User 1: all fields populated");
 
             // User 2: email is NULL
-            String insert2 = "INSERT INTO users (id, name, email, phone, age) " +
-                    "VALUES (2, 'Jane Smith', NULL, '555-1234', 25);";
-            tool.executeSql(insert2);
-            System.out.println("✓ Inserted User 2 (email is NULL)");
+            tool.executeSql("INSERT INTO users (id, name, email, phone, age) " +
+                    "VALUES (2, 'Jane Smith', NULL, '555-1234', 25);");
+            System.out.println("✓ User 2: email is NULL");
 
-            // User 3: phone and age are NULL
-            String insert3 = "INSERT INTO users (id, name, email, phone, age) " +
-                    "VALUES (3, 'Bob Johnson', 'bob@example.com', NULL, NULL);";
-            tool.executeSql(insert3);
-            System.out.println("✓ Inserted User 3 (phone and age are NULL)");
+            // User 3: email is EMPTY STRING (not NULL!)
+            tool.executeSql("INSERT INTO users (id, name, email, phone, age) " +
+                    "VALUES (3, 'Bob Johnson', '', '555-5678', 40);");
+            System.out.println("✓ User 3: email is EMPTY STRING");
 
-            // User 4: All optional fields are NULL
-            String insert4 = "INSERT INTO users (id, name, email, phone, age) " +
-                    "VALUES (4, 'Alice Brown', NULL, NULL, NULL);";
-            tool.executeSql(insert4);
-            System.out.println("✓ Inserted User 4 (all optional fields are NULL)\n");
+            // User 4: phone is NULL, age is NULL
+            tool.executeSql("INSERT INTO users (id, name, email, phone, age) " +
+                    "VALUES (4, 'Alice Brown', 'alice@example.com', NULL, NULL);");
+            System.out.println("✓ User 4: phone and age are NULL\n");
 
             // Query and display results
-            System.out.println("=== Querying all users ===");
-            String query = "SELECT * FROM users ORDER BY id;";
-            String result = tool.executeSqlGetResultAsJson(query);
-
-            System.out.println("JSON Result:");
+            System.out.println("=== JSON Output ===");
+            String result = tool.executeSqlGetResultAsJson("SELECT * FROM users ORDER BY id;");
             System.out.println(result);
 
-            // Verify NULL values are properly represented
+            // Verification
             System.out.println("\n=== Verification ===");
-            if (result.contains("\"email\": null")) {
-                System.out.println("✓✓✓ SUCCESS: NULL values are properly represented as JSON null");
-            } else if (result.contains("\"email\": \"\"")) {
-                System.out.println("✗✗✗ FAILED: NULL values are still represented as empty strings");
-            } else {
-                System.out.println("⚠ WARNING: Unexpected format");
-            }
+
+            // User 2 should NOT have "email" key (NULL)
+            boolean user2NoEmail = !result.contains("\"name\": \"Jane Smith\"") ||
+                    !resultForUser(result, "Jane Smith").contains("\"email\"");
+            System.out.println(user2NoEmail
+                    ? "✓ User 2: NULL email correctly omitted"
+                    : "✗ User 2: NULL email should be omitted");
+
+            // User 3 SHOULD have "email": "" (empty string)
+            boolean user3HasEmptyEmail = resultForUser(result, "Bob Johnson").contains("\"email\": \"\"");
+            System.out.println(user3HasEmptyEmail
+                    ? "✓ User 3: empty string email correctly included as \"\""
+                    : "✗ User 3: empty string email should be included as \"\"");
+
+            // User 4 should NOT have "phone" or "age" keys (NULL)
+            String user4Json = resultForUser(result, "Alice Brown");
+            boolean user4NoPhone = !user4Json.contains("\"phone\"");
+            boolean user4NoAge = !user4Json.contains("\"age\"");
+            System.out.println(user4NoPhone
+                    ? "✓ User 4: NULL phone correctly omitted"
+                    : "✗ User 4: NULL phone should be omitted");
+            System.out.println(user4NoAge
+                    ? "✓ User 4: NULL age correctly omitted"
+                    : "✗ User 4: NULL age should be omitted");
 
             tool.closeDb();
             System.out.println("\n=== Test Complete ===");
@@ -77,5 +88,18 @@ public class NullValueTest {
             System.err.println("✗ Error occurred:");
             e.printStackTrace();
         }
+    }
+
+    /** Extract the JSON object segment for a given user name */
+    private static String resultForUser(String json, String name) {
+        int idx = json.indexOf("\"" + name + "\"");
+        if (idx < 0)
+            return "";
+        // Find the enclosing { ... }
+        int start = json.lastIndexOf('{', idx);
+        int end = json.indexOf('}', idx);
+        if (start < 0 || end < 0)
+            return "";
+        return json.substring(start, end + 1);
     }
 }

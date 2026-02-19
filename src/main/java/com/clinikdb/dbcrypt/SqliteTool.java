@@ -25,6 +25,11 @@ import java.util.logging.SimpleFormatter;
  */
 public class SqliteTool {
 
+	// Sentinel value to represent SQL NULL in parsed CSV results.
+	// This distinguishes NULL (unquoted empty in CSV) from empty string (quoted
+	// empty in CSV).
+	static final String NULL_SENTINEL = "\0__NULL__";
+
 	private static final Logger LOGGER = Logger.getLogger(SqliteTool.class.getName());
 
 	private File sqlcipherBinary; // Used for Windows
@@ -254,30 +259,23 @@ public class SqliteTool {
 			List<String> values = parseCsvLine(output.get(i));
 			jsonBuilder.append("  {\n");
 
-			// First pass: collect non-null fields
-			List<String> nonNullFields = new ArrayList<>();
+			boolean firstField = true;
 			for (int j = 0; j < headers.size(); j++) {
-				String value = (j < values.size()) ? values.get(j) : null;
-				// Only include fields with non-null, non-empty values
-				if (value != null && !value.isEmpty()) {
-					nonNullFields.add(headers.get(j) + ":" + value);
+				String value = (j < values.size()) ? values.get(j) : NULL_SENTINEL;
+
+				// Skip NULL fields, but keep empty strings
+				if (NULL_SENTINEL.equals(value)) {
+					continue;
 				}
-			}
 
-			// Second pass: build JSON with only non-null fields
-			for (int k = 0; k < nonNullFields.size(); k++) {
-				String[] parts = nonNullFields.get(k).split(":", 2);
-				String header = parts[0];
-				String value = parts.length > 1 ? parts[1] : "";
-
-				jsonBuilder.append("    \"").append(escapeJson(header)).append("\": ");
+				if (!firstField) {
+					jsonBuilder.append(",\n");
+				}
+				jsonBuilder.append("    \"").append(escapeJson(headers.get(j))).append("\": ");
 				jsonBuilder.append("\"").append(escapeJson(value)).append("\"");
-
-				if (k < nonNullFields.size() - 1) {
-					jsonBuilder.append(",");
-				}
-				jsonBuilder.append("\n");
+				firstField = false;
 			}
+			jsonBuilder.append("\n");
 
 			jsonBuilder.append("  }");
 
@@ -304,24 +302,37 @@ public class SqliteTool {
 
 		StringBuilder currentField = new StringBuilder();
 		boolean inQuotes = false;
+		boolean wasQuoted = false;
 		for (int i = 0; i < line.length(); i++) {
 			char c = line.charAt(i);
-			if (c == '\"') {
-				if (inQuotes && i + 1 < line.length() && line.charAt(i + 1) == '\"') {
+			if (c == '"') {
+				if (inQuotes && i + 1 < line.length() && line.charAt(i + 1) == '"') {
 					// Escaped quote: ""
-					currentField.append('\"');
+					currentField.append('"');
 					i++;
 				} else {
 					inQuotes = !inQuotes;
+					wasQuoted = true;
 				}
 			} else if (c == ',' && !inQuotes) {
-				result.add(currentField.toString());
+				// Unquoted empty field = NULL, quoted empty field = empty string
+				if (currentField.length() == 0 && !wasQuoted) {
+					result.add(NULL_SENTINEL);
+				} else {
+					result.add(currentField.toString());
+				}
 				currentField.setLength(0);
+				wasQuoted = false;
 			} else {
 				currentField.append(c);
 			}
 		}
-		result.add(currentField.toString());
+		// Handle last field
+		if (currentField.length() == 0 && !wasQuoted) {
+			result.add(NULL_SENTINEL);
+		} else {
+			result.add(currentField.toString());
+		}
 		return result;
 	}
 
